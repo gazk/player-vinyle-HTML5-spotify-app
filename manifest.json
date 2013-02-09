@@ -1,0 +1,13 @@
+{
+	"BundleType": "Application",
+	"BundleIdentifier": "turntable",
+	"AppIcon": {
+		"36x18": "turntable.png"
+	},
+	"AppName": {
+		"en": "Turntable"
+	},
+	"SupportedLanguages": [
+		"en"
+	]
+}

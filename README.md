@@ -1,5 +1,8 @@
 # turntable-player.js
 
+## Spotify app
+Enter spotify:app:turntable in the Spotify search bar
+
 ## Installation
 
 To use the player, it's really simple : download it and run the index.html page.

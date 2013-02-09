@@ -53,14 +53,14 @@ turntablePlayerEngine.prototype = {
 		},
 		forceDateInUri : true,
 		playlistLocation: 'playlist.json',
-		infos: ["duration", "timer"],
+		infos: ["duration", "timer", "current", "position"],
 		panels: {
 			'cover': true,
-			'infos': false,
-			'playlist': false
+			'infos': true,
+			'playlist': true
 		},
 
-		useTransitions: true,
+		useTransitions: false, // Spotify does not allow the HTML5 audio api
 		useCssAnimations: true,
 		useShadow: true,
 
@@ -302,7 +302,8 @@ turntablePlayerEngine.prototype = {
 	 * Init the turntable
 	 * @param  {Object} options Settings
 	 */
-	init: function (options) {
+	init: function (player, options) {			
+		this._player = player;											
 		this.setOptions(options);
 		this.loadLogger();
 		console.info('Init!');
@@ -315,13 +316,14 @@ turntablePlayerEngine.prototype = {
 	load: function () {
 		console.info('Load!');
 		if (this.check()) {
-			this.initPlayer();
+			this.loadTrack(this._playlistIndex);
 			this.initTransitions();
 			this.initRemote();
 			this.initPlaylist();
 			this.initInfos();
 			this.initTurntable();
 			this.initCover();
+			this.updateDiscInfos();
 			this.browserCompat();
 		}
 	},
@@ -690,53 +692,23 @@ turntablePlayerEngine.prototype = {
 	 */
 	getPlaylist: function (uri) {
 		var
-			self = this,
-			uri = uri || (this.options.paths.playlists + this.options.playlistLocation),
-			req = this.createXHR()
+			self = this			
 		;
 
-		if (this.options.forceDateInUri) {
-			var
-				r = /\?/i,
-				now = new Date(),
-				y = now.getFullYear(),
-				m = now.getMonth(),
-				d = now.getDate(),
-				h = now.getHours(),
-				i = now.getMinutes(),
-				ymd = y + '-' + m + '-' + d + '-' + h + '-' + i
-			;
+		var currentTrack = self._player.track;
 
-			if (r.test(uri))
-				uri += ('&' + ymd);
-			else
-				uri += ('?' + ymd);
-		}
-
-		req.open("GET", uri, false);
-		req.onreadystatechange = function () {
-			var
-				response = eval(self.getResponseXHR(req))
-			;
-			if (typeof(response) == 'object' && response.length) {
-				var
-					playlist = response[0]
-				;
-				if (typeof(playlist) == 'object'
-					&& typeof(playlist.tracks) == 'object' && playlist.tracks.length
+		if (typeof(currentTrack) == 'object') {
+			self._playlistInfos.title = currentTrack.name;
+			if (typeof(currentTrack.artists) == 'object' && currentTrack.artists.length
 				) {
-					self._playlistInfos.title = playlist.title;
-					self._playlistInfos.artist = playlist.artist;
-					self._tracks = playlist.tracks;
-					self.options.enable = true;
-					self.load();
-				}
-				else {
-					console.error('No well formatted playlist.');
-				}
+					self._playlistInfos.artist = currentTrack.artists[0].name;
 			}
-		};
-		req.send(null);
+			self._tracks = [{ artist: self._playlistInfos.title,
+							 title: self._playlistInfos.artist
+			}];
+			self.options.enable = true;
+			self.load();
+		}
 	},
 
 	/**
@@ -846,41 +818,7 @@ turntablePlayerEngine.prototype = {
 
 		return this._remote;
 	},
-
-	/**
-	 * Init the audio player
-	 */
-	initPlayer: function () {
-		if (!this._player) {
-			var
-				self = this,
-				audio = document.createElementNS('http://www.w3.org/1999/xhtml', 'audio')
-			;
-
-			if (this.options.debug) {
-				this._wrapper.appendChild(audio);
-				audio.controls = 'controls';
-			}
-			audio.preload = 'metadata';
-			audio.id = this.options.ids.audioplayer;
-			this._player = audio;
-			this.loadTrack(this._playlistIndex);
-
-			this._player.addEventListener('loadedmetadata', function (event) {
-				self.playerLoadedMetaData(event);
-			}, false);
-			this._player.addEventListener('loadeddata', function (event) {
-				self.playerLoadedData(event);
-			}, false);
-			this._player.addEventListener('timeupdate', function (event) {
-				self.playerTimeUpdated(event);
-			}, false);
-			this._player.addEventListener('ended', function (event) {
-				self.playerEnded(event);
-			}, false);
-		}
-	},
-
+	
 	/**
 	 * Init the audio transitions
 	 * @return {[type]} [description]
@@ -2018,6 +1956,16 @@ turntablePlayerEngine.prototype = {
 		else if (this._inTransition)
 			this.pauseTransitions();
 	},
+	
+	startNextTrack: function () {
+		console.info('START NEXT TRACK');
+		
+		this.startDiscRotation({
+			easing: 'linear',
+			transition: 'manualstart'
+		});
+
+	},
 
 	/**
 	 * Start the automatic turntable
@@ -2137,10 +2085,12 @@ turntablePlayerEngine.prototype = {
 		o.transition = 'stop';
 		this.pauseTransitions();
 
+		
 		if (this._player.currentTime) {
 			this.pause();
 			this._player.currentTime = 0;
 		}
+		
 
 		if (this.options.mode != 'manual')
 			this.startDiscRotation({
@@ -2186,41 +2136,7 @@ turntablePlayerEngine.prototype = {
 		this._needRestart = true;
 		this.end(true);
 	},
-
-	/**
-	 * Add the source to the audio element
-	 * @param {Object} element The audio element
-	 * @param {Mixed} src	 The source(s) as string or object
-	 */
-	addSrcToAudio: function (element, src, type) {
-		while (element.firstChild) {
-		  element.removeChild(element.firstChild);
-		}
-
-		var
-			path = this.options.paths[type],
-			r = /http/i
-		;
-
-		if (typeof(src) == 'string') {
-			source.src = r.test(src) ? src : path + src;
-		}
-		else {
-			var source = document.createElementNS('http://www.w3.org/1999/xhtml', 'source');
-
-			if (element.canPlayType('audio/mpeg') && src.mp3) {
-				source.src = r.test(src.mp3) ? src.mp3 : path + src.mp3;
-				source.type = 'audio/mpeg';
-			}
-			else if (element.canPlayType('audio/ogg') && src.ogg) {
-				source.src = r.test(src.ogg) ? src.ogg : path + src.ogg;
-				source.type = 'audio/ogg';
-			}
-
-			element.appendChild(source);
-		}
-	},
-
+	
 	/**
 	 * Load the track according to his index in the playlist
 	 * @param  {Number} i The index of the track in the playlist
@@ -2231,10 +2147,7 @@ turntablePlayerEngine.prototype = {
 				i = typeof index == 'number' ? index : 0,
 				track = this._tracks[i]
 			;
-
-			this.addSrcToAudio(this._player, track.src, 'music');
-
-			this._player.load();
+					
 			this._playlistIndex = i;
 
 			this.disableRemote('loadTrack');
@@ -2287,9 +2200,7 @@ turntablePlayerEngine.prototype = {
 		element.preload = 'metadata';
 		if (option.loop != false)
 			element.loop = 'loop';
-
-		this.addSrcToAudio(element, option.src, 'audio');
-
+		
 		element.load();
 
 		console.info('Transition "' + transition + '" ok.')
@@ -2774,7 +2685,7 @@ turntablePlayerEngine.prototype = {
 	 * Event 'timeupdated' called on media elements
 	 */
 	playerTimeUpdated: function (event) {
-		if (event.target.id == 'turntable-player') {
+		if (event.target.id == 'turntable-player') {			
 			this.updateDiscNeedlePosition({
 				name: 'track',
 				element: this._player
